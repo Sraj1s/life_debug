@@ -9,7 +9,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const { data: { session }, error } = await supabase.auth.getSession();
   if (error || !session?.access_token) throw new Error('Not signed in');
   const response = await fetch(base + path, { ...init, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token, ...init?.headers } });
-  if (!response.ok) throw new Error('Request failed: ' + response.status);
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403)
+      throw new Error('Sign-in token rejected by the backend. Check Supabase JWT signing, issuer, audience, and backend auth configuration.');
+    if (response.status === 503)
+      throw new Error('Backend authentication is not configured. Check AUTH_JWKS_URL, AUTH_ISSUER, and AUTH_AUDIENCE.');
+    if (response.status >= 500)
+      throw new Error('Backend error (' + response.status + '). Check FastAPI logs and database migrations.');
+    throw new Error('API request failed (' + response.status + ').');
+  }
   return response.json() as Promise<T>;
 }
 export const getCommitments = () => request<Commitment[]>('/commitments');

@@ -11,7 +11,7 @@ Life Debug is a mobile-first behavioral reflection prototype. Users create reali
 - Local SQLite database; optional PostgreSQL using DATABASE_URL.
 - Automated backend tests.
 
-> **LOCAL DEVELOPMENT ONLY**: The backend now verifies signed bearer tokens and filters records by authenticated owner, and the Expo client now has email/password registration with confirmation-email links (device verification still pending) and sends bearer tokens. End-to-end authentication is NOT yet verified and production security is incomplete. Do not deploy publicly or store sensitive journals. Push notifications and AI coaching are not connected yet.
+> **LOCAL DEVELOPMENT ONLY**: The backend now verifies signed bearer tokens and filters records by authenticated owner, and the Expo client now has email/password registration with confirmation-email links (device verification still pending) and sends bearer tokens. End-to-end authentication is NOT yet verified and production security is incomplete. Do not deploy publicly or store sensitive journals. Push notifications and full AI coaching are not connected yet. An optional Gemini-powered reflection endpoint is implemented but not live-tested.
 
 ## Authentication groundwork (not production-ready)
 
@@ -46,6 +46,17 @@ The Expo screen uses email/password registration with `supabase.auth.signUp()`, 
 5. Supabase's default email service has delivery limits and restrictions; use a suitable custom SMTP provider before public launch. Do not turn off email confirmations just to pass tests. Never commit private keys or test passwords.
 
 Code changes and the project's active status **do not** confirm that the dashboard toggles are enabled or that actual email delivery, login, and logout have passed on a device.
+
+## Optional Gemini AI reflections
+
+The Reflect tab's **Generate AI reflection** action calls the authenticated backend route `POST /insights/ai`. It sends only aggregate check-in counts and reported obstacle categories for the current account to Google's Gemini API; not journal notes, commitment titles, credentials, or user IDs. This opt-in call is not run automatically. Provider errors or missing keys fall back to deterministic reflections.
+
+1. Create a Gemini API key at https://aistudio.google.com/apikey. Keep it private.
+2. Copy `backend/.env.example` to `backend/.env` if it does not exist. Set `GEMINI_API_KEY` to your real key in **backend/.env only** and `GEMINI_MODEL=gemini-3.1-flash-lite` (model availability may vary by account).
+3. Start FastAPI with these variables exported: from the `backend` folder, run `set -a; . ./.env; set +a` before `uvicorn app.main:app --reload`. The server does not automatically load `.env`.
+4. In the app, sign in, record a check-in, open Reflect, then select **Generate AI reflection**. It will display whether the response was AI-generated or a rule-based fallback.
+
+Free-tier requests may be subject to limits and provider data-use policies, so do not send sensitive journals or personal details. Never add the private key to `mobile/.env`, React Native code, CI logs, or GitHub. Until a real key and end-to-end session are configured, AI generation remains unverified.
 
 ## Start backend
 

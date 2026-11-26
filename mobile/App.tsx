@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { authConfigured, supabase } from './src/auth';
 import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
-import { addCheckin, addCommitment, Commitment, getCommitments, getInsights, Insight, Reason, Status } from './src/api';
+import { addCheckin, addCommitment, Commitment, getCommitments, getInsights, getAIReflection, Insight, Reason, Status } from './src/api';
 
 const C = { bg:'#FAF9F6', ink:'#20231F', muted:'#62685F', sage:'#DCE8D4', green:'#52735B', line:'#DFE1DA', white:'#FFFFFF' };
 type Tab = 'Today' | 'Check-in' | 'Reflect' | 'Routine';
@@ -93,6 +93,9 @@ function SignedInApp({onSignOut}:{onSignOut:()=>void}) {
  const [tab,setTab] = useState<Tab>('Today');
  const [items,setItems] = useState<Commitment[]>([]);
  const [insight,setInsight] = useState<Insight | null>(null);
+ const [aiReflection,setAIReflection] = useState<string | null>(null);
+ const [aiSource,setAISource] = useState<'ai' | 'rules' | null>(null);
+ const [aiLoading,setAILoading] = useState(false);
  const [selected,setSelected] = useState<number | null>(null);
  const [reason,setReason] = useState<Reason | undefined>();
  const [title,setTitle] = useState('');
@@ -102,7 +105,7 @@ function SignedInApp({onSignOut}:{onSignOut:()=>void}) {
  const refresh = useCallback(async () => {
    try {
      const [commitments,insights] = await Promise.all([getCommitments(),getInsights()]);
-     setItems(commitments); setInsight(insights);
+     setItems(commitments); setInsight(insights); setAIReflection(null); setAISource(null);
      setSelected(old => old !== null && commitments.some(x=>x.id===old) ? old : commitments[0]?.id ?? null);
      setError('');
    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Cannot reach the backend. Check EXPO_PUBLIC_API_URL.'); }
@@ -118,6 +121,16 @@ function SignedInApp({onSignOut}:{onSignOut:()=>void}) {
    if (selected === null) return;
    try { await addCheckin(selected,status,reason); setReason(undefined); await refresh(); setTab('Reflect'); }
    catch { Alert.alert('Could not save','Check the API connection.'); }
+ };
+ const askAI = async () => {
+   setAILoading(true);
+   try {
+     const result = await getAIReflection();
+     setAIReflection(result.reflection);
+     setAISource(result.source);
+   } catch (cause) {
+     Alert.alert('Could not generate reflection',cause instanceof Error ? cause.message : 'Try again later.');
+   } finally {setAILoading(false);}
  };
  const heading = (eyebrow:string,heading:string)=><View style={{marginBottom:12}}><Text style={s.eyebrow}>{eyebrow}</Text><Text style={s.hero}>{heading}</Text></View>;
  const button = (label:string,onPress:()=>void,secondary=false)=><Pressable accessibilityRole="button" onPress={onPress} style={[s.button,secondary && s.secondary]}><Text style={[s.buttonText,secondary && {color:C.ink}]}>{label}</Text></Pressable>;
@@ -147,7 +160,10 @@ function SignedInApp({onSignOut}:{onSignOut:()=>void}) {
    </>}
    {tab==='Reflect' && <>{heading('YOUR DAILY REFLECTION','A day in review.')}
      <Text style={s.section}>{insight?.completion_rate == null ? 'Start your story.' : insight.completion_rate+'% completed'}</Text>
-     <View style={s.highlight}><Text style={s.reflection}>{insight?.reflection ?? 'Check in to get a reflection.'}</Text></View>
+     <View style={s.highlight}><Text style={s.reflection}>{aiReflection ?? insight?.reflection ?? 'Check in to get a reflection.'}</Text></View>
+     {aiSource && <Text style={s.muted}>{aiSource === 'ai' ? 'AI-generated suggestion based on check-in totals.' : 'Rule-based reflection (AI not configured or unavailable).'}</Text>}
+     <Text style={s.muted}>Optional: requesting an AI reflection sends aggregated check-in statistics and obstacle categories to the configured AI provider. No notes or identity details are sent.</Text>
+     <Pressable accessibilityRole="button" disabled={aiLoading || !insight?.checkins} style={[s.button,(aiLoading || !insight?.checkins) && s.dimmed]} onPress={()=>void askAI()}><Text style={s.buttonText}>{aiLoading ? 'Generating…' : 'Generate AI reflection'}</Text></Pressable>
      <Text style={s.muted}>Based on logged events, not a diagnosis or proof of causes.</Text>
      {button('Back to today',()=>setTab('Today'))}
    </>}

@@ -7,7 +7,9 @@
     "start": "expo start",
     "ios": "expo start --ios",
     "android": "expo start --android",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:auth:e2e": "node --env-file=.env scripts/test-auth-flow.mjs",
+    "check:auth:script": "node --check scripts/test-auth-flow.mjs"
   },
   "dependencies": {
     "expo": "~54.0.0",

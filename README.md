@@ -31,9 +31,9 @@ Life Debug now uses its own Supabase project: **Life Debug** (`bbrdiakvwocjblbym
 
 Creation was confirmed as `ACTIVE_HEALTHY`; the initial Supabase security advisory check had no findings. Neither of these checks verifies a working live login or the project's JWT signing algorithm. Open the dedicated project's Auth → Signing Keys settings and confirm an asymmetric RS256/ES256 key is active with its public verification key available at `/auth/v1/.well-known/jwks.json`. Legacy HS256 tokens will not work with the current backend verifier.
 
-Copy only the new project's **publishable** key into `mobile/.env`, replacing `YOUR_PUBLISHABLE_KEY`. Never add Supabase service-role/secret keys or private JWT signing keys to mobile code or GitHub. Environment files are ignored from source control. `backend/.env` is not loaded automatically: explicitly export its variables before launching FastAPI.
+The dedicated project's **public publishable key** is already present in `mobile/.env.example`. Copy that file to `mobile/.env` on your development machine; this key is safe to embed in the Expo client. Never add Supabase service-role/secret keys or private JWT signing keys to mobile code or GitHub. Environment files are ignored from source control. `backend/.env` is not loaded automatically: explicitly export its variables before launching FastAPI.
 
-The backend currently stores commitments and check-ins using local SQLite (or PostgreSQL via `DATABASE_URL`); it is **not** connected to Supabase Postgres by default. Supabase is being used as the identity provider. A real user session, sign-out behavior, mobile device access, migrations, and account deletion/export remain unverified.
+The backend currently stores commitments and check-ins using local SQLite (or PostgreSQL via `DATABASE_URL`); it is **not** connected to Supabase Postgres by default. Supabase is being used as the identity provider. A real user session, sign-out behavior, mobile device access, migrations, and account deletion/export remain unverified. The public JWKS URL could not be reached from the assistant environment, so the key type must still be checked in Supabase Authentication → Signing Keys.
 
 ## Start backend
 
@@ -64,7 +64,7 @@ Install a current Node.js LTS release, then:
 cd mobile
 npm install
 cp .env.example .env
-# Replace YOUR_PUBLISHABLE_KEY with the project's publishable key.
+# The public key and project URL are prefilled. Adjust EXPO_PUBLIC_API_URL for your emulator or device.
 npx expo start
 ```
 

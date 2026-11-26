@@ -10,6 +10,7 @@ def utcnow() -> datetime:
 class Commitment(Base):
     __tablename__ = "commitments"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     scheduled_time: Mapped[str] = mapped_column(String(5), nullable=False)
     frequency: Mapped[str] = mapped_column(String(20), default="daily")

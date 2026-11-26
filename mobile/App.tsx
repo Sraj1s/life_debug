@@ -33,7 +33,7 @@ export default function App() {
 
  const sendCode = async () => {
    const address = email.trim().toLowerCase();
-   if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(address)) return Alert.alert('Check email','Enter a valid email address.');
+   if (!/^[^ @]+@[^ @]+[.][^ @]+$/.test(address)) return Alert.alert('Check email','Enter a valid email address.');
    setSigning(true);
    try {
      const {error} = await supabase.auth.signInWithOtp({email:address, options:{shouldCreateUser:register}});
@@ -46,7 +46,7 @@ export default function App() {
    } finally {setSigning(false);}
  };
  const verifyCode = async () => {
-   if (!/^\\d{6}$/.test(otp.trim())) return Alert.alert('Invalid code','Enter the six-digit code from your email.');
+   if (!/^[0-9]{6}$/.test(otp.trim())) return Alert.alert('Invalid code','Enter the six-digit code from your email.');
    setSigning(true);
    try {
      const {error} = await supabase.auth.verifyOtp({email:email.trim().toLowerCase(),token:otp.trim(),type:'email'});

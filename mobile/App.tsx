@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { authConfigured, supabase } from './src/auth';
 import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import { addCheckin, addCommitment, Commitment, getCommitments, getInsights, Insight, Reason, Status } from './src/api';
 
@@ -10,6 +12,58 @@ const reasons: { label: string; value: Reason }[] = [
 ];
 
 export default function App() {
+ const [session,setSession] = useState<Session | null>(null);
+ const [checking,setChecking] = useState(true);
+ const [email,setEmail] = useState('');
+ const [password,setPassword] = useState('');
+ const [signing,setSigning] = useState(false);
+ const [register,setRegister] = useState(false);
+
+ useEffect(() => {
+   if (!authConfigured) { setChecking(false); return; }
+   let mounted = true;
+   void supabase.auth.getSession().then(({data}) => { if (mounted) { setSession(data.session); setChecking(false); } })
+     .catch(() => { if (mounted) setChecking(false); });
+   const {data: {subscription}} = supabase.auth.onAuthStateChange((_event, next) => {
+     if (mounted) { setSession(next); setChecking(false); }
+   });
+   return () => { mounted = false; subscription.unsubscribe(); };
+ }, []);
+
+ const submit = async () => {
+   if (!email.trim() || !password) return Alert.alert('Missing details','Enter your email and password.');
+   setSigning(true);
+   try {
+     const result = register
+       ? await supabase.auth.signUp({email:email.trim(),password})
+       : await supabase.auth.signInWithPassword({email:email.trim(),password});
+     if (result.error) throw result.error;
+     if (register && !result.data.session)
+       Alert.alert('Check your email','Confirm your account, then sign in.');
+   } catch (error) {
+     Alert.alert('Authentication failed',error instanceof Error ? error.message : 'Try again.');
+   } finally {setSigning(false);}
+ };
+ if (checking) return <SafeAreaView style={s.root}><ActivityIndicator style={{flex:1}} color={C.green}/></SafeAreaView>;
+ if (!authConfigured) return <SafeAreaView style={s.root}><View style={s.authWrap}>
+   <Text style={s.hero}>life debug.</Text>
+   <Text style={s.muted}>Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY in mobile/.env, then restart Expo to enable sign-in.</Text>
+ </View></SafeAreaView>;
+ if (!session) return <SafeAreaView style={s.root}><ScrollView contentContainerStyle={s.authWrap} keyboardShouldPersistTaps="handled">
+   <Text style={s.eyebrow}>NOTICE. ADJUST. BEGIN AGAIN.</Text>
+   <Text style={s.hero}>{register ? 'Create your space.' : 'Welcome back.'}</Text>
+   <Text style={s.muted}>Your routines and reflections belong to you.</Text>
+   <TextInput accessibilityLabel="Email" textContentType="emailAddress" autoComplete="email" keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail} placeholder="Email" style={s.input}/>
+   <TextInput accessibilityLabel="Password" textContentType={register ? 'newPassword' : 'password'} autoComplete={register ? 'new-password' : 'current-password'} secureTextEntry value={password} onChangeText={setPassword} placeholder="Password" style={s.input}/>
+   <Pressable accessibilityRole="button" disabled={signing} style={s.button} onPress={()=>void submit()}>
+     <Text style={s.buttonText}>{signing ? 'Working…' : (register ? 'Create account' : 'Sign in')}</Text>
+   </Pressable>
+   <Pressable accessibilityRole="button" onPress={()=>setRegister(!register)}><Text style={s.muted}>{register ? 'Already registered? Sign in' : 'New here? Create an account'}</Text></Pressable>
+ </ScrollView></SafeAreaView>;
+ return <SignedInApp key={session.user.id} onSignOut={()=>void supabase.auth.signOut()}/>;
+}
+
+function SignedInApp({onSignOut}:{onSignOut:()=>void}) {
  const [tab,setTab] = useState<Tab>('Today');
  const [items,setItems] = useState<Commitment[]>([]);
  const [insight,setInsight] = useState<Insight | null>(null);
@@ -44,7 +98,7 @@ export default function App() {
 
  return <SafeAreaView style={s.root}><StatusBar barStyle="dark-content" backgroundColor={C.bg}/>
  <ScrollView contentContainerStyle={s.content}>
-   <View style={s.brand}><View style={s.mark}><Text style={{fontSize:24,color:C.sage,fontWeight:'700'}}>↻</Text><Text style={s.letter}>L</Text></View><Text style={s.wordmark}>life debug.</Text></View>
+   <View style={s.brand}><View style={s.mark}><Text style={{fontSize:24,color:C.sage,fontWeight:'700'}}>↻</Text><Text style={s.letter}>L</Text></View><Text style={s.wordmark}>life debug.</Text><Pressable accessibilityRole="button" onPress={onSignOut}><Text style={s.muted}>Sign out</Text></Pressable></View>
    {loading ? <ActivityIndicator color={C.green}/> : <>
    {!!error && <Text style={{color:'#A03C3C'}}>{error}</Text>}
    {tab==='Today' && <>{heading('YOUR DAY, YOUR PACE','Today.')}
@@ -81,6 +135,7 @@ export default function App() {
  </ScrollView><View style={s.nav}>{(['Today','Check-in','Reflect','Routine'] as Tab[]).map(t=><Pressable key={t} accessibilityRole="tab" accessibilityState={{selected:tab===t}} onPress={()=>setTab(t)}><Text style={[s.navText,tab===t && {color:C.green,fontWeight:'800'}]}>{t}</Text></Pressable>)}</View></SafeAreaView>;
 }
 const s=StyleSheet.create({
+ authWrap:{flexGrow:1,justifyContent:'center',paddingHorizontal:28,gap:18,backgroundColor:C.bg},
  root:{flex:1,backgroundColor:C.bg},content:{paddingHorizontal:28,paddingTop:24,paddingBottom:40,gap:14,flexGrow:1},
  brand:{flexDirection:'row',alignItems:'center',gap:12,marginBottom:15},mark:{height:38,width:38,backgroundColor:C.ink,borderRadius:12,alignItems:'center',justifyContent:'center'},letter:{position:'absolute',color:C.sage,fontSize:13,fontWeight:'900',top:12,left:15},wordmark:{color:C.ink,fontSize:20,fontWeight:'700'},
  eyebrow:{color:C.green,fontWeight:'700',fontSize:12,letterSpacing:1.2},hero:{fontSize:44,color:C.ink,fontWeight:'700',letterSpacing:-1.5,marginTop:10},

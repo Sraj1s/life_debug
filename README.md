@@ -25,13 +25,15 @@ Tokens must contain `sub`, `exp`, `iat`, `iss` and `aud` claims. Accepted signat
 
 **Migration required:** the commitments table now has a non-null `user_id` column. SQLAlchemy `create_all()` does not update existing tables. Existing local SQLite files need to be backed up and migrated or recreated using throwaway sample data. Do **not** discard or assign existing real records to an arbitrary owner. Production requires versioned migrations, end-to-end login, account deletion/export, provider setup, and security review. The Expo client sends Supabase access tokens. Supabase projects using legacy HS256 JWT signing are incompatible with the current backend JWKS-only RS256/ES256 verifier; configure asymmetric signing and matching issuer/audience, or implement an explicitly reviewed secure alternative. A working Supabase project, matching auth environment variables and real-device verification are still required.
 
-## Connected Supabase project (development only)
+## Dedicated Supabase project (development only)
 
-The available project is **Sraj1s's Project** (`osgeutnplzfqfulxrqpl`). Its base URL and the expected JWT issuer, JWKS endpoint and audience are prefilled in the example environment files. These URLs are **not evidence** that the project has been switched from legacy HS256 JWT signing to asymmetric RS256/ES256. Check Auth → Signing Keys in the Supabase dashboard and ensure an asymmetric signing key is active, then confirm that `/auth/v1/.well-known/jwks.json` exposes a matching public key before live login testing.
+Life Debug now uses its own Supabase project: **Life Debug** (`bbrdiakvwocjblbymuyj`), in `us-east-2`. The other Supabase project belongs to another application and must not be modified for Life Debug. The new project's public URL and expected authentication issuer, JWKS endpoint, and audience are in `backend/.env.example` and `mobile/.env.example`.
 
-The project currently has no registered auth users. Its security advisor also flagged existing public-executable privileged functions, apparently belonging to other application features. Do not treat this shared project as a vetted Life Debug production backend or change those functions without reviewing their dependencies and purposes.
+Creation was confirmed as `ACTIVE_HEALTHY`; the initial Supabase security advisory check had no findings. Neither of these checks verifies a working live login or the project's JWT signing algorithm. Open the dedicated project's Auth → Signing Keys settings and confirm an asymmetric RS256/ES256 key is active with its public verification key available at `/auth/v1/.well-known/jwks.json`. Legacy HS256 tokens will not work with the current backend verifier.
 
-Copy only a **publishable** Supabase key into `mobile/.env`. Never put service-role keys or private JWT signing keys into Expo variables, GitHub or this README. The mobile app and Python backend each need their own environment configuration. `backend/.env` is not loaded automatically: explicitly export variables before starting FastAPI.
+Copy only the new project's **publishable** key into `mobile/.env`, replacing `YOUR_PUBLISHABLE_KEY`. Never add Supabase service-role/secret keys or private JWT signing keys to mobile code or GitHub. Environment files are ignored from source control. `backend/.env` is not loaded automatically: explicitly export its variables before launching FastAPI.
+
+The backend currently stores commitments and check-ins using local SQLite (or PostgreSQL via `DATABASE_URL`); it is **not** connected to Supabase Postgres by default. Supabase is being used as the identity provider. A real user session, sign-out behavior, mobile device access, migrations, and account deletion/export remain unverified.
 
 ## Start backend
 

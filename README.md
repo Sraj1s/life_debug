@@ -11,7 +11,7 @@ Life Debug is a mobile-first behavioral reflection prototype. Users create reali
 - Local SQLite database; optional PostgreSQL using DATABASE_URL.
 - Automated backend tests.
 
-> **LOCAL DEVELOPMENT ONLY**: The backend now verifies signed bearer tokens and filters records by authenticated owner, and the Expo client now has an email-code sign-in screen and a Google OAuth flow (provider configuration and device verification still pending) and sends bearer tokens. End-to-end authentication is NOT yet verified and production security is incomplete. Do not deploy publicly or store sensitive journals. Push notifications and AI coaching are not connected yet.
+> **LOCAL DEVELOPMENT ONLY**: The backend now verifies signed bearer tokens and filters records by authenticated owner, and the Expo client now has email/password registration with confirmation-email links (device verification still pending) and sends bearer tokens. End-to-end authentication is NOT yet verified and production security is incomplete. Do not deploy publicly or store sensitive journals. Push notifications and AI coaching are not connected yet.
 
 ## Authentication groundwork (not production-ready)
 
@@ -35,17 +35,17 @@ The dedicated project's **public publishable key** is already present in `mobile
 
 The backend currently stores commitments and check-ins using local SQLite (or PostgreSQL via `DATABASE_URL`); it is **not** connected to Supabase Postgres by default. Supabase is being used as the identity provider. A real user session, sign-out behavior, mobile device access, migrations, and account deletion/export remain unverified. The Supabase public JWKS is now checked in GitHub CI via `backend/scripts/check_jwks.py`; this check passed with one compatible key. Creating a test account, receiving a real signed access token, verifying it against the running backend, and testing the Expo app on a device remain pending.
 
-## Email OTP and Google authentication setup (required for live use)
+## Email confirmation authentication (MVP)
 
-The Expo screen offers **Sign up** / **Sign in**, sends an email code with `supabase.auth.signInWithOtp()`, verifies it with `verifyOtp({ type: 'email' })`, and offers **Continue with Google**.
+The Expo screen uses email/password registration with `supabase.auth.signUp()`, followed by Supabase's standard confirmation-email link. Users return to the app and sign in using `signInWithPassword()` after confirming. The mobile screen also supports resending the signup confirmation email. Google OAuth and six-digit OTP entry are deferred and hidden from the MVP UI.
 
-1. In the **Life Debug** Supabase project (`bbrdiakvwocjblbymuyj`), under **Authentication > Email Templates**, edit the **Magic Link** template so that the email body includes `{{ .Token }}` (the six-digit code) **instead of requiring** `{{ .ConfirmationURL }}`. Configure the **Confirm signup** template with `{{ .Token }}` as well if sign-up emails use that template. Keep email confirmation enabled. Do not include the link if you intend a code-only experience.
-2. Under **Authentication > Providers > Google**, enable Google OAuth with a Google Cloud OAuth client ID and secret, using the project-specific callback URL shown by Supabase. In Google Cloud Console, register that Supabase callback as an authorized redirect URI. Never commit the Google client secret.
-3. Under **Authentication > URL Configuration > Redirect URLs**, allow `lifedebug://google-auth`. Expo's `scheme` is already `lifedebug`; after native configuration changes, rebuild the development app if needed. The OAuth flow opens in Expo WebBrowser and returns to the app with a session.
-4. Run `cd mobile && npm install && npx expo start`; use a compatible device development build to test OAuth. Test email sign-up, email sign-in, resend, invalid/expired codes, Google sign-in/cancel, saved commitments, and sign-out.
-5. The Supabase default email delivery has rate limits; configure an appropriate email provider before inviting real users. Do not turn off confirmation or log OTP codes/tokens.
+1. In the dedicated **Life Debug** Supabase project (`bbrdiakvwocjblbymuyj`), open **Authentication > Sign In / Providers > Email** (wording may vary) and verify that email signups are enabled and **Confirm Email** is ON. These project settings cannot be read or changed with the currently connected Supabase tools; do not assume they've been verified.
+2. Keep the standard **Confirm signup** email template containing the confirmation URL; no custom SMTP or paid plan is required just to use the default confirmation link for development.
+3. Under **Authentication > URL Configuration**, set the Site URL to a safe destination you control for email confirmation. Supabase's default hosted verification link can complete verification in a browser; the app asks users to return and sign in manually. Do not configure a mobile deep link unless the mobile app also handles its callback.
+4. Start Expo, register a disposable account, open the confirmation email, follow the link, return and sign in, create a commitment, and sign out. Check resend behavior, bad passwords, expired links, and email delivery.
+5. Supabase's default email service has delivery limits and restrictions; use a suitable custom SMTP provider before public launch. Do not turn off email confirmations just to pass tests. Never commit private keys or test passwords.
 
-These repository updates alone **do not** prove the Supabase provider settings are enabled or that emails were delivered. Until end-to-end tests pass, do not advertise either sign-in method as production-ready.
+Code changes and the project's active status **do not** confirm that the dashboard toggles are enabled or that actual email delivery, login, and logout have passed on a device.
 
 ## Start backend
 
@@ -88,7 +88,7 @@ The project has an automated **local command** for a real Supabase password sign
 
 1. Start the FastAPI backend using the backend instructions above, including `AUTH_ISSUER`, `AUTH_JWKS_URL`, and `AUTH_AUDIENCE` from `backend/.env`.
 2. Run `cd mobile && npm install && cp .env.example .env` and ensure `EXPO_PUBLIC_API_URL` addresses that **running** FastAPI instance. A phone cannot reach your laptop using `127.0.0.1`; for on-device testing use a safely reachable development server.
-3. The Expo UI now uses passwordless email OTP codes, whereas this separate automated smoke-test script still uses a disposable email/password account. For the script, create a disposable password-based Supabase test user separately, confirm its email, then supply its credentials. Do not disable email confirmation merely to pass a smoke test.
+3. The Expo UI and automated smoke-test script now both use email/password sign-in. Register a disposable user, follow the confirmation link, then supply that user's credentials. Do not disable email confirmation just to pass a smoke test.
 4. Supply credentials **only in your local shell**, never in source files or GitHub:
 
 ```bash
@@ -102,7 +102,7 @@ unset LIFE_DEBUG_TEST_PASSWORD
 
 The test signs into Supabase, checks `getUser()`, sends the actual access token to FastAPI, creates and reads a commitment, records a check-in, verifies insights, and signs out. It **leaves behind a uniquely named test commitment** under the test account. It does not prove cross-user isolation beyond the existing backend tests, server-side token revocation, or an actual Expo UI flow.
 
-For the device UI check, open the app with Expo Go or a simulator, enter your email, enter the six-digit code from the email, sign in, create a commitment, check it in, verify the reflection, sign out, and confirm the sign-in screen returns. A successful local smoke test is not a substitute for this device check.
+For the device UI check, open the app with Expo Go or a simulator, register with an email and password, confirm the emailed link, return to the app and sign in, create a commitment, check it in, verify the reflection, sign out, and confirm the sign-in screen returns. A successful local smoke test is not a substitute for this device check.
 
 ## Endpoints
 

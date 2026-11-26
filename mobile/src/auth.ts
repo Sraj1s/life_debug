@@ -1,6 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import * as WebBrowser from 'expo-web-browser';
 import { createClient } from '@supabase/supabase-js';
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
@@ -49,3 +50,41 @@ AppState.addEventListener('change', state => {
   if (state === 'active') supabase.auth.startAutoRefresh();
   else supabase.auth.stopAutoRefresh();
 });
+
+const googleRedirect = 'lifedebug://google-auth';
+
+// Requires Google provider enabled in Supabase and lifedebug://google-auth
+// allow-listed under Authentication > URL Configuration.
+export async function signInWithGoogle(): Promise<void> {
+  if (!authConfigured) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: googleRedirect, skipBrowserRedirect: true },
+  });
+  if (error) throw error;
+  if (!data.url) throw new Error('Supabase did not return a Google sign-in URL.');
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, googleRedirect);
+  if (result.type === 'cancel' || result.type === 'dismiss') return;
+  if (result.type !== 'success') throw new Error('Google sign-in did not complete.');
+
+  const callback = new URL(result.url);
+  const params = new URLSearchParams(callback.hash.slice(1) || callback.search.slice(1));
+  const oauthError = params.get('error_description') || params.get('error');
+  if (oauthError) throw new Error(oauthError);
+
+  const access_token = params.get('access_token');
+  const refresh_token = params.get('refresh_token');
+  if (access_token && refresh_token) {
+    const { error: sessionError } = await supabase.auth.setSession({ access_token, refresh_token });
+    if (sessionError) throw sessionError;
+    return;
+  }
+  const code = params.get('code');
+  if (code) {
+    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+    if (exchangeError) throw exchangeError;
+    return;
+  }
+  throw new Error('Google returned without a usable login session. Check the allowed redirect URL.');
+}

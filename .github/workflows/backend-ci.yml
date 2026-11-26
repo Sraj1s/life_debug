@@ -28,3 +28,7 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest -q
+      - name: Check Supabase public JWT signing keys
+        env:
+          AUTH_JWKS_URL: https://bbrdiakvwocjblbymuyj.supabase.co/auth/v1/.well-known/jwks.json
+        run: python scripts/check_jwks.py

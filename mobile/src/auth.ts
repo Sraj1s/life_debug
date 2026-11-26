@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '';
-export const authConfigured = /^https:\/\/.+\.supabase\.co\/?$/.test(url) && key.length > 0;
+export const authConfigured = /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(url) && /^sb_publishable_[A-Za-z0-9_-]+$/.test(key);
 
 const chunkSize = 1500;
 const storage = {

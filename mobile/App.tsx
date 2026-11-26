@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { authConfigured, supabase, signInWithGoogle } from './src/auth';
+import { authConfigured, supabase } from './src/auth';
 import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import { addCheckin, addCommitment, Commitment, getCommitments, getInsights, Insight, Reason, Status } from './src/api';
 
@@ -15,8 +15,8 @@ export default function App() {
  const [session,setSession] = useState<Session | null>(null);
  const [checking,setChecking] = useState(true);
  const [email,setEmail] = useState('');
- const [otp,setOtp] = useState('');
- const [otpSent,setOtpSent] = useState(false);
+ const [password,setPassword] = useState('');
+ const [confirmationSent,setConfirmationSent] = useState(false);
  const [signing,setSigning] = useState(false);
  const [register,setRegister] = useState(false);
 
@@ -31,37 +31,38 @@ export default function App() {
    return () => { mounted = false; subscription.unsubscribe(); };
  }, []);
 
- const sendCode = async () => {
+ const submitEmail = async () => {
    const address = email.trim().toLowerCase();
    if (!/^[^ @]+@[^ @]+[.][^ @]+$/.test(address)) return Alert.alert('Check email','Enter a valid email address.');
+   if (!password) return Alert.alert('Password required','Enter your password.');
+   if (register && password.length < 6) return Alert.alert('Password too short','Use at least six characters.');
    setSigning(true);
    try {
-     const {error} = await supabase.auth.signInWithOtp({email:address, options:{shouldCreateUser:register}});
-     if (error) throw error;
-     setOtpSent(true);
-     setOtp('');
-     Alert.alert('Check your inbox','Enter the verification code sent to your email.');
+     if (register) {
+       const {data,error} = await supabase.auth.signUp({email:address,password});
+       if (error) throw error;
+       if (data.session) {
+         Alert.alert('Account created','You are now signed in.');
+       } else {
+         setConfirmationSent(true);
+       }
+     } else {
+       const {error} = await supabase.auth.signInWithPassword({email:address,password});
+       if (error) throw error;
+     }
    } catch (error) {
-     Alert.alert('Could not send code',error instanceof Error ? error.message : 'Try again.');
+     Alert.alert(register ? 'Could not sign up' : 'Could not sign in',error instanceof Error ? error.message : 'Try again.');
    } finally {setSigning(false);}
  };
- const verifyCode = async () => {
-   if (!/^[0-9]{6}$/.test(otp.trim())) return Alert.alert('Invalid code','Enter the six-digit code from your email.');
+ const resendConfirmation = async () => {
    setSigning(true);
    try {
-     const {error} = await supabase.auth.verifyOtp({email:email.trim().toLowerCase(),token:otp.trim(),type:'email'});
+     const {error} = await supabase.auth.resend({type:'signup',email:email.trim().toLowerCase()});
      if (error) throw error;
-     setOtp('');
-     setOtpSent(false);
+     Alert.alert('Email requested','Check your inbox and spam folder for the confirmation link.');
    } catch (error) {
-     Alert.alert('Verification failed',error instanceof Error ? error.message : 'Try again or request a new code.');
+     Alert.alert('Could not resend',error instanceof Error ? error.message : 'Try again later.');
    } finally {setSigning(false);}
- };
- const googleSignIn = async () => {
-   setSigning(true);
-   try { await signInWithGoogle(); }
-   catch (error) {Alert.alert('Google sign-in failed',error instanceof Error ? error.message : 'Try again.');}
-   finally {setSigning(false);}
  };
  if (checking) return <SafeAreaView style={s.root}><ActivityIndicator style={{flex:1}} color={C.green}/></SafeAreaView>;
  if (!authConfigured) return <SafeAreaView style={s.root}><View style={s.authWrap}>
@@ -70,24 +71,19 @@ export default function App() {
  </View></SafeAreaView>;
  if (!session) return <SafeAreaView style={s.root}><ScrollView contentContainerStyle={s.authWrap} keyboardShouldPersistTaps="handled">
    <Text style={s.eyebrow}>NOTICE. ADJUST. BEGIN AGAIN.</Text>
-   <Text style={s.hero}>{otpSent ? 'Check your email.' : register ? 'Create your space.' : 'Welcome back.'}</Text>
-   <Text style={s.muted}>{otpSent ? 'Enter the six-digit code we sent to '+email.trim()+'.' : 'Your routines and reflections belong to you.'}</Text>
-   {!otpSent ? <>
+   <Text style={s.hero}>{confirmationSent ? 'Check your email.' : register ? 'Create your space.' : 'Welcome back.'}</Text>
+   <Text style={s.muted}>{confirmationSent ? 'We sent a confirmation link to '+email.trim()+'. Open the link in your email, then return here to sign in.' : 'Your routines and reflections belong to you.'}</Text>
+   {!confirmationSent ? <>
      <TextInput accessibilityLabel="Email" textContentType="emailAddress" autoComplete="email" keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail} placeholder="Email address" style={s.input}/>
-     <Pressable accessibilityRole="button" disabled={signing} style={[s.button,signing && s.dimmed]} onPress={()=>void sendCode()}>
-       <Text style={s.buttonText}>{signing ? 'Sending…' : register ? 'Sign up with email' : 'Email me a sign-in code'}</Text>
-     </Pressable>
-     <View style={s.orRow}><View style={s.orLine}/><Text style={s.muted}>or continue with</Text><View style={s.orLine}/></View>
-     <Pressable accessibilityRole="button" disabled={signing} style={[s.googleButton,signing && s.dimmed]} onPress={()=>void googleSignIn()}>
-       <Text style={s.googleMark}>G</Text><Text style={s.googleText}>Continue with Google</Text>
+     <TextInput accessibilityLabel="Password" textContentType={register ? 'newPassword' : 'password'} autoComplete={register ? 'new-password' : 'current-password'} secureTextEntry value={password} onChangeText={setPassword} placeholder="Password" style={s.input}/>
+     <Pressable accessibilityRole="button" disabled={signing} style={[s.button,signing && s.dimmed]} onPress={()=>void submitEmail()}>
+       <Text style={s.buttonText}>{signing ? 'Please wait…' : register ? 'Create account' : 'Sign in'}</Text>
      </Pressable>
      <View style={s.switchRow}><Text style={s.muted}>{register ? 'Already have an account?' : 'New to Life Debug?'}</Text>
-       <Pressable accessibilityRole="button" onPress={()=>{setRegister(!register);setOtp('');}}><Text style={s.switchLink}>{register ? 'Sign in' : 'Sign up'}</Text></Pressable></View>
+       <Pressable accessibilityRole="button" onPress={()=>{setRegister(!register);setPassword('');}}><Text style={s.switchLink}>{register ? 'Sign in' : 'Sign up'}</Text></Pressable></View>
    </> : <>
-     <TextInput accessibilityLabel="Six-digit email code" keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={6} value={otp} onChangeText={setOtp} placeholder="6-digit code" style={s.input}/>
-     <Pressable accessibilityRole="button" disabled={signing} style={[s.button,signing && s.dimmed]} onPress={()=>void verifyCode()}><Text style={s.buttonText}>{signing ? 'Verifying…' : 'Verify & continue'}</Text></Pressable>
-     <Pressable accessibilityRole="button" disabled={signing} onPress={()=>void sendCode()}><Text style={s.switchLink}>Resend code</Text></Pressable>
-     <Pressable accessibilityRole="button" onPress={()=>{setOtpSent(false);setOtp('');}}><Text style={s.muted}>Use a different email</Text></Pressable>
+     <Pressable accessibilityRole="button" disabled={signing} style={[s.button,signing && s.dimmed]} onPress={()=>void resendConfirmation()}><Text style={s.buttonText}>{signing ? 'Sending…' : 'Resend confirmation email'}</Text></Pressable>
+     <Pressable accessibilityRole="button" onPress={()=>{setConfirmationSent(false);setRegister(false);setPassword('');}}><Text style={s.switchLink}>I confirmed my email. Sign in</Text></Pressable>
    </>}
  </ScrollView></SafeAreaView>;
  return <SignedInApp key={session.user.id} onSignOut={()=>void supabase.auth.signOut()}/>;

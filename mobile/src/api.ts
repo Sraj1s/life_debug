@@ -26,3 +26,6 @@ export const addCommitment = (title: string, scheduled_time: string) =>
   request<Commitment>('/commitments', { method: 'POST', body: JSON.stringify({ title, scheduled_time }) });
 export const addCheckin = (id: number, status: Status, reason?: Reason) =>
   request('/commitments/' + id + '/checkins', { method: 'POST', body: JSON.stringify({ status, reason: reason ?? null }) });
+
+export type AIReflection = { reflection: string; source: 'ai' | 'rules' };
+export const getAIReflection = () => request<AIReflection>('/insights/ai', { method: 'POST' });

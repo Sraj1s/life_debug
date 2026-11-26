@@ -79,14 +79,14 @@ function SignedInApp({onSignOut}:{onSignOut:()=>void}) {
      setItems(commitments); setInsight(insights);
      setSelected(old => old !== null && commitments.some(x=>x.id===old) ? old : commitments[0]?.id ?? null);
      setError('');
-   } catch { setError('Cannot reach the local backend. Start FastAPI and check EXPO_PUBLIC_API_URL.'); }
+   } catch (cause) { setError(cause instanceof Error ? cause.message : 'Cannot reach the backend. Check EXPO_PUBLIC_API_URL.'); }
    finally { setLoading(false); }
  },[]);
  useEffect(()=>{void refresh();},[refresh]);
  const create = async () => {
    if (!title.trim() || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return Alert.alert('Check details','Enter a title and HH:MM time.');
    try { await addCommitment(title,time); setTitle(''); await refresh(); setTab('Today'); }
-   catch { Alert.alert('Could not save','Check the API connection.'); }
+   catch (cause) { Alert.alert('Could not save', cause instanceof Error ? cause.message : 'Check the API connection.'); }
  };
  const check = async (status: Status) => {
    if (selected === null) return;

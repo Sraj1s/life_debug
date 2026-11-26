@@ -29,3 +29,5 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Typecheck Expo application
         run: npm run typecheck
+      - name: Validate live authentication test script syntax
+        run: npm run check:auth:script

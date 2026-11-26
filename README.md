@@ -25,6 +25,14 @@ Tokens must contain `sub`, `exp`, `iat`, `iss` and `aud` claims. Accepted signat
 
 **Migration required:** the commitments table now has a non-null `user_id` column. SQLAlchemy `create_all()` does not update existing tables. Existing local SQLite files need to be backed up and migrated or recreated using throwaway sample data. Do **not** discard or assign existing real records to an arbitrary owner. Production requires versioned migrations, end-to-end login, account deletion/export, provider setup, and security review. The Expo client sends Supabase access tokens. Supabase projects using legacy HS256 JWT signing are incompatible with the current backend JWKS-only RS256/ES256 verifier; configure asymmetric signing and matching issuer/audience, or implement an explicitly reviewed secure alternative. A working Supabase project, matching auth environment variables and real-device verification are still required.
 
+## Connected Supabase project (development only)
+
+The available project is **Sraj1s's Project** (`osgeutnplzfqfulxrqpl`). Its base URL and the expected JWT issuer, JWKS endpoint and audience are prefilled in the example environment files. These URLs are **not evidence** that the project has been switched from legacy HS256 JWT signing to asymmetric RS256/ES256. Check Auth → Signing Keys in the Supabase dashboard and ensure an asymmetric signing key is active, then confirm that `/auth/v1/.well-known/jwks.json` exposes a matching public key before live login testing.
+
+The project currently has no registered auth users. Its security advisor also flagged existing public-executable privileged functions, apparently belonging to other application features. Do not treat this shared project as a vetted Life Debug production backend or change those functions without reviewing their dependencies and purposes.
+
+Copy only a **publishable** Supabase key into `mobile/.env`. Never put service-role keys or private JWT signing keys into Expo variables, GitHub or this README. The mobile app and Python backend each need their own environment configuration. `backend/.env` is not loaded automatically: explicitly export variables before starting FastAPI.
+
 ## Start backend
 
 ```bash
@@ -32,6 +40,10 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
+cp .env.example .env
+set -a
+. ./.env
+set +a
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -50,6 +62,7 @@ Install a current Node.js LTS release, then:
 cd mobile
 npm install
 cp .env.example .env
+# Replace YOUR_PUBLISHABLE_KEY with the project's publishable key.
 npx expo start
 ```
 

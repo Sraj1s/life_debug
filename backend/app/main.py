@@ -2,13 +2,13 @@
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from .database import Base, SessionLocal, engine
-from .models import Commitment, CheckIn
+from .models import Commitment, CommitmentPlan, CheckIn
 from .schemas import CommitmentCreate, CommitmentRead, CheckInCreate, CheckInRead, InsightRead
 from .insights import summarize
-from .ai_reflection import generate_reflection
+from .ai_reflection import generate_reflection, generate_plan
 from .auth import current_user
 
 @asynccontextmanager
@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="Life Debug API", version="0.1.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8081", "http://127.0.0.1:8081"], allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8081", "http://127.0.0.1:8081"], allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Authorization"])
 
 def db_session():
     with SessionLocal() as session:
@@ -29,7 +29,9 @@ def health():
 
 @app.post("/commitments", response_model=CommitmentRead, status_code=201)
 def create_commitment(payload: CommitmentCreate, user_id: str = Depends(current_user), db: Session = Depends(db_session)):
-    item = Commitment(user_id=user_id, **payload.model_dump())
+    item = Commitment(user_id=user_id, **payload.model_dump(exclude={"planned_date"}))
+    if payload.planned_date is not None:
+        item.plan = CommitmentPlan(planned_date=payload.planned_date)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -44,6 +46,14 @@ def create_checkin(commitment_id: int, payload: CheckInCreate, user_id: str = De
     item = db.get(Commitment, commitment_id)
     if item is None or not item.active or item.user_id != user_id:
         raise HTTPException(404, "Commitment not found")
+    if payload.status == "completed" and item.frequency == "once":
+        result = db.execute(update(Commitment).where(
+            Commitment.id == commitment_id,
+            Commitment.user_id == user_id,
+            Commitment.active.is_(True),
+        ).values(active=False))
+        if not result.rowcount:
+            raise HTTPException(404, "Commitment not found")
     event = CheckIn(commitment_id=commitment_id, **payload.model_dump())
     db.add(event)
     db.commit()
@@ -63,3 +73,11 @@ def get_ai_reflection(user_id: str = Depends(current_user), db: Session = Depend
     """Explicitly requested AI reflection; no user identifiers or notes leave the backend."""
     events = list(db.scalars(select(CheckIn).join(Commitment).where(Commitment.user_id == user_id).order_by(CheckIn.created_at.desc(), CheckIn.id.desc()).limit(30)))
     return generate_reflection(events)
+
+
+@app.post("/insights/plan")
+def get_plan_suggestions(user_id: str = Depends(current_user), db: Session = Depends(db_session)):
+    events = list(db.scalars(select(CheckIn).join(Commitment)
+        .where(Commitment.user_id == user_id)
+        .order_by(CheckIn.created_at.desc(), CheckIn.id.desc()).limit(30)))
+    return generate_plan(events)

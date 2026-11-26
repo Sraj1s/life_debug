@@ -1,6 +1,6 @@
 """AI reflections are opt-in, scoped to the logged-in user, and safe without a key."""
 from unittest.mock import patch
-from app.ai_reflection import generate_reflection
+import json
 
 def test_ai_fallback_without_key(client, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
@@ -21,7 +21,8 @@ def test_ai_uses_only_aggregated_anonymous_data(client, monkeypatch):
         def read(self, *args): return b'{"candidates":[{"content":{"parts":[{"text":"Try one smaller step tomorrow."}]}}]}'
     def fake_urlopen(request, timeout):
         assert timeout == 8
-        body = request.data.decode("utf-8")
+        envelope = json.loads(request.data)
+        body = envelope["contents"][0]["parts"][0]["text"]
         assert "do not send me" not in body
         assert "Private commitment title" not in body
         assert "test-user-a" not in body
@@ -43,3 +44,15 @@ def test_ai_provider_errors_fall_back(client, monkeypatch):
         response = client.post("/insights/ai")
     assert response.status_code == 200
     assert response.json()["source"] == "rules"
+
+
+def test_plan_uses_ai_copy_and_falls_back_on_invalid_output(client, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "dummy-for-test")
+    expected = {"suggestions": ["Review Python for 10 minutes", "Stretch for 5 minutes", "Plan one task"],
+                "reminder": "Take the smallest step you can."}
+    with patch("app.ai_reflection.ask_gemini", return_value=json.dumps(expected)):
+        assert client.post("/insights/plan").json() == {**expected, "source": "ai"}
+    with patch("app.ai_reflection.ask_gemini", return_value='{"suggestions": [""]}'):
+        result = client.post("/insights/plan").json()
+        assert result["source"] == "rules"
+        assert len(result["suggestions"]) == 3

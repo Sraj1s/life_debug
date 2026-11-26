@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { authConfigured, supabase } from './src/auth';
-import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
-import { addCheckin, addCommitment, Commitment, getCommitments, getInsights, getAIReflection, Insight, Reason, Status } from './src/api';
+import { ActivityIndicator, Alert, AppState, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import { addCheckin, addCommitment, Commitment, getCommitments, getInsights, getAIReflection, getCheckins, getPlanSuggestions, AIReflection, CheckIn, Insight, PlanSuggestions, Reason, Status } from './src/api';
+import * as SecureStore from 'expo-secure-store';
+import { cancelCommitmentReminder, cancelReminders, localDay, scheduleReminder } from './src/reminders';
 
 const C = { bg:'#FAF9F6', ink:'#20231F', muted:'#62685F', sage:'#DCE8D4', green:'#52735B', line:'#DFE1DA', white:'#FFFFFF' };
 type Tab = 'Today' | 'Check-in' | 'Reflect' | 'Routine';
@@ -86,41 +88,166 @@ export default function App() {
      <Pressable accessibilityRole="button" onPress={()=>{setConfirmationSent(false);setRegister(false);setPassword('');}}><Text style={s.switchLink}>I confirmed my email. Sign in</Text></Pressable>
    </>}
  </ScrollView></SafeAreaView>;
- return <SignedInApp key={session.user.id} onSignOut={()=>void supabase.auth.signOut()}/>;
+ return <SignedInApp key={session.user.id} owner={session.user.id}/>;
 }
 
-function SignedInApp({onSignOut}:{onSignOut:()=>void}) {
+const basicSuggestions = ['Study for 20 minutes', 'Take a 10-minute walk', 'Plan tomorrow for 5 minutes'];
+
+function SignedInApp({owner}:{owner:string}) {
  const [tab,setTab] = useState<Tab>('Today');
  const [items,setItems] = useState<Commitment[]>([]);
  const [insight,setInsight] = useState<Insight | null>(null);
  const [aiReflection,setAIReflection] = useState<string | null>(null);
+ const [checkins,setCheckins] = useState<CheckIn[]>([]);
+ const [today,setToday] = useState(localDay);
+ const [dayOffset,setDayOffset] = useState(0);
+ const [remind,setRemind] = useState(false);
+ const [plan,setPlan] = useState<PlanSuggestions | null>(null);
+ const [planning,setPlanning] = useState(false);
+ const [dailyEnabled,setDailyEnabled] = useState(false);
+ const [dailyResult,setDailyResult] = useState<AIReflection | null>(null);
+ const [saving,setSaving] = useState(false);
+ const writing = useRef(false);
+ const refreshId = useRef(0);
+ const prefKey = 'daily-reflections.' + owner;
+ const cacheKey = 'daily-reflection-cache.' + owner;
+ const plannedDate = localDay(new Date(), dayOffset);
+ const doneToday = new Set(checkins.filter(event =>
+   event.status === 'completed' && localDay(new Date(event.created_at)) === today
+ ).map(event => event.commitment_id));
+ const hasCheckins = Boolean(insight?.checkins);
+ const activeItems = items.filter(item =>
+   (!item.planned_date || item.planned_date <= today) && !doneToday.has(item.id)
+ );
  const [aiSource,setAISource] = useState<'ai' | 'rules' | null>(null);
  const [aiLoading,setAILoading] = useState(false);
  const [selected,setSelected] = useState<number | null>(null);
+ const currentSelection = activeItems.some(item => item.id === selected) ? selected : activeItems[0]?.id;
  const [reason,setReason] = useState<Reason | undefined>();
  const [title,setTitle] = useState('');
  const [time,setTime] = useState('07:00');
  const [loading,setLoading] = useState(true);
  const [error,setError] = useState('');
  const refresh = useCallback(async () => {
+   const id = ++refreshId.current;
    try {
-     const [commitments,insights] = await Promise.all([getCommitments(),getInsights()]);
+     const [commitments,insights,events] = await Promise.all([getCommitments(),getInsights(),getCheckins()]);
+     if (id !== refreshId.current) return;
+     setCheckins(events);
+     void cancelReminders(owner, commitments.map(item => item.id)).catch(() => {});
      setItems(commitments); setInsight(insights); setAIReflection(null); setAISource(null);
      setSelected(old => old !== null && commitments.some(x=>x.id===old) ? old : commitments[0]?.id ?? null);
      setError('');
-   } catch (cause) { setError(cause instanceof Error ? cause.message : 'Cannot reach the backend. Check EXPO_PUBLIC_API_URL.'); }
-   finally { setLoading(false); }
- },[]);
- useEffect(()=>{void refresh();},[refresh]);
+   } catch (cause) {
+     if (id === refreshId.current) setError(cause instanceof Error ? cause.message : 'Cannot reach the backend. Check EXPO_PUBLIC_API_URL.');
+   } finally { if (id === refreshId.current) setLoading(false); }
+ },[owner]);
+ useEffect(()=>{
+   void refresh();
+   const state = AppState.addEventListener('change', next => {
+     if (next === 'active') { setToday(localDay()); void refresh(); }
+   });
+   const clock = setInterval(() => setToday(localDay()), 30_000);
+   return () => { state.remove(); clearInterval(clock); };
+ },[refresh]);
+ useEffect(() => {
+   let active = true;
+   void SecureStore.getItemAsync(prefKey).then(value => {
+     if (active) setDailyEnabled(value === 'on');
+   }).catch(() => {});
+   return () => { active = false; };
+ }, [prefKey]);
+ useEffect(() => {
+   setDailyResult(null);
+   if (!dailyEnabled || !hasCheckins) return;
+   let active = true;
+   void (async () => {
+     const raw = await SecureStore.getItemAsync(cacheKey);
+     if (!active) return;
+     const cached = raw ? JSON.parse(raw) as { date: string; result: AIReflection } : null;
+     if (cached?.date === today) {
+       setDailyResult(cached.result);
+       return;
+     }
+     const result = await getAIReflection();
+     if (!active) return;
+     setDailyResult(result);
+     await SecureStore.setItemAsync(cacheKey, JSON.stringify({ date: today, result }));
+   })().catch(() => {});
+   return () => { active = false; };
+ }, [cacheKey, dailyEnabled, hasCheckins, today]);
+ const toggleDaily = async () => {
+   try {
+     await SecureStore.setItemAsync(prefKey, dailyEnabled ? 'off' : 'on');
+     setDailyEnabled(!dailyEnabled);
+   } catch {
+     Alert.alert('Could not save preference', 'Try again on your phone.');
+   }
+ };
+ const suggest = async () => {
+   setPlanning(true);
+   try { setPlan(await getPlanSuggestions()); }
+   catch { Alert.alert('Suggestions unavailable', 'You can still choose a starter or write your own.'); }
+   finally { setPlanning(false); }
+ };
+ const signOut = async () => {
+   if (writing.current) return;
+   try {
+     await cancelReminders(owner);
+     const {error} = await supabase.auth.signOut();
+     if (error) throw error;
+   } catch {
+     Alert.alert('Could not sign out', 'Try again.');
+   }
+ };
  const create = async () => {
    if (!title.trim() || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return Alert.alert('Check details','Enter a title and HH:MM time.');
-   try { await addCommitment(title,time); setTitle(''); await refresh(); setTab('Today'); }
-   catch (cause) { Alert.alert('Could not save', cause instanceof Error ? cause.message : 'Check the API connection.'); }
+   if (writing.current) return;
+   const reminderDate = new Date(plannedDate + 'T' + time + ':00');
+   if (remind && reminderDate.getTime() <= Date.now()) {
+     return Alert.alert('Choose a future time', 'The reminder time needs to be in the future.');
+   }
+   writing.current = true;
+   setSaving(true);
+   try {
+     const item = await addCommitment(title,time,plannedDate);
+     if (remind) {
+       try {
+         const copy = plan ?? await getPlanSuggestions().catch(() => null);
+         await scheduleReminder(owner, item.id, reminderDate,
+           copy?.reminder ?? 'Ready for your commitment? Start with one small step.');
+       } catch (cause) {
+         Alert.alert('Commitment saved', cause instanceof Error ? cause.message : 'The reminder could not be scheduled.');
+       }
+     }
+     setTitle('');
+     setRemind(false);
+     await refresh();
+     setTab('Today');
+   } catch (cause) {
+     Alert.alert('Could not save', cause instanceof Error ? cause.message : 'Check the API connection.');
+   } finally {
+     writing.current = false;
+     setSaving(false);
+   }
  };
  const check = async (status: Status) => {
-   if (selected === null) return;
-   try { await addCheckin(selected,status,reason); setReason(undefined); await refresh(); setTab('Reflect'); }
-   catch { Alert.alert('Could not save','Check the API connection.'); }
+   if (currentSelection == null || writing.current) return;
+   writing.current = true;
+   setSaving(true);
+   try {
+     await addCheckin(currentSelection,status,status === 'completed' ? undefined : reason);
+     if (status === 'completed') {
+       setCheckins(events => [{ commitment_id: currentSelection, status, created_at: new Date().toISOString() }, ...events]);
+       await cancelCommitmentReminder(owner, currentSelection).catch(() => {
+         Alert.alert('Check-in saved', 'The phone could not cancel the reminder.');
+       });
+     }
+     setReason(undefined);
+     await refresh();
+     setTab('Reflect');
+   } catch { Alert.alert('Could not save','Check the API connection.'); }
+   finally { writing.current = false; setSaving(false); }
  };
  const askAI = async () => {
    setAILoading(true);
@@ -137,20 +264,29 @@ function SignedInApp({onSignOut}:{onSignOut:()=>void}) {
 
  return <SafeAreaView style={s.root}><StatusBar barStyle="dark-content" backgroundColor={C.bg}/>
  <ScrollView contentContainerStyle={s.content}>
-   <View style={s.brand}><View style={s.mark}><Text style={{fontSize:24,color:C.sage,fontWeight:'700'}}>↻</Text><Text style={s.letter}>L</Text></View><Text style={s.wordmark}>life debug.</Text><Pressable accessibilityRole="button" onPress={onSignOut}><Text style={s.muted}>Sign out</Text></Pressable></View>
+   <View style={s.brand}><View style={s.mark}><Text style={{fontSize:24,color:C.sage,fontWeight:'700'}}>↻</Text><Text style={s.letter}>L</Text></View><Text style={s.wordmark}>life debug.</Text><Pressable accessibilityRole="button" onPress={()=>void signOut()}><Text style={s.muted}>Sign out</Text></Pressable></View>
    {loading ? <ActivityIndicator color={C.green}/> : <>
    {!!error && <Text style={{color:'#A03C3C'}}>{error}</Text>}
    {tab==='Today' && <>{heading('YOUR DAY, YOUR PACE','Today.')}
      <View style={s.highlight}><Text style={s.big}>{insight?.completed ?? 0} / {insight?.checkins ?? 0}</Text><Text style={s.muted}>Completed check-ins / total logged</Text></View>
      <Text style={s.section}>Your commitments</Text>
-     {items.length===0 && <Text style={s.muted}>Start with one small commitment.</Text>}
-     {items.map(item=><Pressable key={item.id} style={s.task} onPress={()=>{setSelected(item.id);setTab('Check-in');}}><Text style={s.eyebrow}>{item.scheduled_time}</Text><Text style={s.taskTitle}>{item.title}</Text><Text style={s.muted}>Tap to check in →</Text></Pressable>)}
+     {activeItems.length===0 && <Text style={s.muted}>No open commitments for today.</Text>}
+     {activeItems.map(item=><Pressable key={item.id} style={s.task} onPress={()=>{setSelected(item.id);setTab('Check-in');}}><Text style={s.eyebrow}>{item.scheduled_time}</Text><Text style={s.taskTitle}>{item.title}</Text><Text style={s.muted}>Tap to check in →</Text></Pressable>)}
      {button('+ Add commitment',()=>setTab('Routine'))}
+     {items.some(item => item.planned_date && item.planned_date > today) && <>
+       <Text style={s.section}>Upcoming</Text>
+       {items.filter(item => item.planned_date && item.planned_date > today).map(item=>
+         <Text key={item.id} style={s.text}>{item.title} · {item.planned_date} · {item.scheduled_time}</Text>)}
+     </>}
+     {dailyResult && <View style={s.highlight}>
+       <Text style={s.section}>Daily insight</Text><Text style={s.text}>{dailyResult.reflection}</Text>
+       {button('Plan a next step',()=>{setDayOffset(0);setTab('Routine');},true)}
+     </View>}
    </>}
    {tab==='Check-in' && <>{heading('A MOMENT TO RESET','How did it go?')}
-     {items.length===0 ? <Text style={s.muted}>Add a commitment first.</Text> : <>
+     {activeItems.length===0 ? <Text style={s.muted}>No open commitments to check in.</Text> : <>
        <Text style={s.section}>Choose commitment</Text>
-       {items.map(item=><Pressable key={item.id} style={[s.choice,selected===item.id && s.selected]} onPress={()=>setSelected(item.id)}><Text style={s.text}>{item.title} · {item.scheduled_time}</Text></Pressable>)}
+       {activeItems.map(item=><Pressable key={item.id} style={[s.choice,currentSelection===item.id && s.selected]} onPress={()=>setSelected(item.id)}><Text style={s.text}>{item.title} · {item.scheduled_time}</Text></Pressable>)}
        <Text style={s.section}>What got in the way? (optional)</Text>
        {reasons.map(r=><Pressable key={r.value} style={[s.choice,reason===r.value && s.selected]} onPress={()=>setReason(r.value)}><Text style={s.text}>{r.label}</Text></Pressable>)}
        {button('I completed it',()=>void check('completed'))}
@@ -160,18 +296,40 @@ function SignedInApp({onSignOut}:{onSignOut:()=>void}) {
    </>}
    {tab==='Reflect' && <>{heading('YOUR DAILY REFLECTION','A day in review.')}
      <Text style={s.section}>{insight?.completion_rate == null ? 'Start your story.' : insight.completion_rate+'% completed'}</Text>
-     <View style={s.highlight}><Text style={s.reflection}>{aiReflection ?? insight?.reflection ?? 'Check in to get a reflection.'}</Text></View>
-     {aiSource && <Text style={s.muted}>{aiSource === 'ai' ? 'AI-generated suggestion based on check-in totals.' : 'Rule-based reflection (AI not configured or unavailable).'}</Text>}
+     <View style={s.highlight}><Text style={s.reflection}>{aiReflection ?? dailyResult?.reflection ?? insight?.reflection ?? 'Check in to get a reflection.'}</Text></View>
+     {(aiSource ?? dailyResult?.source) && <Text style={s.muted}>{(aiSource ?? dailyResult?.source) === 'ai' ? 'AI-generated suggestion based on check-in totals.' : 'Rule-based reflection (AI not configured or unavailable).'}</Text>}
      <Text style={s.muted}>Optional: requesting an AI reflection sends aggregated check-in statistics and obstacle categories to the configured AI provider. No notes or identity details are sent.</Text>
      <Pressable accessibilityRole="button" disabled={aiLoading || !insight?.checkins} style={[s.button,(aiLoading || !insight?.checkins) && s.dimmed]} onPress={()=>void askAI()}><Text style={s.buttonText}>{aiLoading ? 'Generating…' : 'Generate AI reflection'}</Text></Pressable>
      <Text style={s.muted}>Based on logged events, not a diagnosis or proof of causes.</Text>
+     {button(dailyEnabled ? 'Turn off daily AI insights' : 'Enable daily AI insights',()=>void toggleDaily(),true)}
+     <Text style={s.muted}>When enabled, Life Debug generates an insight when you open the app each day using check-in totals and obstacle categories.</Text>
      {button('Back to today',()=>setTab('Today'))}
    </>}
    {tab==='Routine' && <>{heading('MAKE SPACE FOR WHAT MATTERS','Your rhythm.')}
      <Text style={s.muted}>One small commitment is enough to begin.</Text>
-     <Text style={s.section}>What will you do?</Text><TextInput style={s.input} placeholder="Study Python" placeholderTextColor={C.muted} value={title} onChangeText={setTitle} maxLength={120}/>
+     <View style={s.switchRow}>{['Today','Tomorrow'].map((label,index)=>
+       <Pressable key={label} accessibilityRole="button" accessibilityState={{selected:dayOffset===index}}
+         style={[s.choice,dayOffset===index && s.selected]} onPress={()=>setDayOffset(index)}>
+         <Text style={s.text}>{label}</Text>
+       </Pressable>)}</View>
+     <Text style={s.section}>What will you do {dayOffset ? 'tomorrow' : 'today'}?</Text>
+     {(plan?.suggestions ?? basicSuggestions).map(option=>
+       <Pressable key={option} accessibilityRole="button" style={s.choice} onPress={()=>setTitle(option)}>
+         <Text style={s.text}>{option}</Text>
+       </Pressable>)}
+     {plan?.source === 'rules' && <Text style={s.muted}>Showing starter ideas.</Text>}
+     <Pressable accessibilityRole="button" disabled={planning} style={s.secondary} onPress={()=>void suggest()}>
+       <Text style={s.switchLink}>{planning ? 'Finding ideas…' : 'Suggest options with AI'}</Text>
+     </Pressable>
+     <Text style={s.muted}>AI ideas and reminder wording use check-in totals and obstacle categories.</Text>
+     <TextInput accessibilityLabel="Commitment title"  style={s.input} placeholder="Study Python" placeholderTextColor={C.muted} value={title} onChangeText={setTitle} maxLength={120}/>
      <Text style={s.section}>At what time? (HH:MM)</Text><TextInput style={s.input} placeholder="07:00" placeholderTextColor={C.muted} value={time} onChangeText={setTime} maxLength={5}/>
-     {button('Save commitment',()=>void create())}
+     <Pressable accessibilityRole="checkbox" accessibilityState={{checked:remind}} style={[s.choice,remind && s.selected]} onPress={()=>setRemind(!remind)}>
+       <Text style={s.text}>{remind ? '✓ ' : ''}Remind me at this time</Text>
+     </Pressable>
+     <Pressable accessibilityRole="button" disabled={saving} style={[s.button,saving && s.dimmed]} onPress={()=>void create()}>
+       <Text style={s.buttonText}>{saving ? 'Saving…' : 'Save commitment'}</Text>
+     </Pressable>
    </>}
    </>}
  </ScrollView><View style={s.nav}>{(['Today','Check-in','Reflect','Routine'] as Tab[]).map(t=><Pressable key={t} accessibilityRole="tab" accessibilityState={{selected:tab===t}} onPress={()=>setTab(t)}><Text style={[s.navText,tab===t && {color:C.green,fontWeight:'800'}]}>{t}</Text></Pressable>)}</View></SafeAreaView>;

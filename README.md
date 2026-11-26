@@ -11,7 +11,7 @@ Life Debug is a mobile-first behavioral reflection prototype. Users create reali
 - Local SQLite database; optional PostgreSQL using DATABASE_URL.
 - Automated backend tests.
 
-> **LOCAL DEVELOPMENT ONLY**: The backend now verifies signed bearer tokens and filters records by authenticated owner, and the Expo client now has email/password registration with confirmation-email links (device verification still pending) and sends bearer tokens. End-to-end authentication is NOT yet verified and production security is incomplete. Do not deploy publicly or store sensitive journals. Push notifications and full AI coaching are not connected yet. An optional Gemini-powered reflection endpoint is implemented but not live-tested.
+> **LOCAL DEVELOPMENT ONLY**: The backend now verifies signed bearer tokens and filters records by authenticated owner, and the Expo client now has email/password registration with confirmation-email links (device verification still pending) and sends bearer tokens. End-to-end authentication is NOT yet verified and production security is incomplete. Do not deploy publicly or store sensitive journals. The app supports opt-in local commitment reminders. Live Gemini responses and on-device notification delivery still need verification.
 
 ## Authentication groundwork (not production-ready)
 
@@ -47,7 +47,7 @@ The Expo screen uses email/password registration with `supabase.auth.signUp()`, 
 
 Code changes and the project's active status **do not** confirm that the dashboard toggles are enabled or that actual email delivery, login, and logout have passed on a device.
 
-## Optional Gemini AI reflections
+## Daily insights, planning, and reminders
 
 The Reflect tab's **Generate AI reflection** action calls the authenticated backend route `POST /insights/ai`. It sends only aggregate check-in counts and reported obstacle categories for the current account to Google's Gemini API; not journal notes, commitment titles, credentials, or user IDs. This opt-in call is not run automatically. Provider errors or missing keys fall back to deterministic reflections.
 
@@ -55,6 +55,12 @@ The Reflect tab's **Generate AI reflection** action calls the authenticated back
 2. Copy `backend/.env.example` to `backend/.env` if it does not exist. Set `GEMINI_API_KEY` to your real key in **backend/.env only** and `GEMINI_MODEL=gemini-3.5-flash-lite` (model availability may vary by account).
 3. Start FastAPI with these variables exported: from the `backend` folder, run `set -a; . ./.env; set +a` before `uvicorn app.main:app --reload`. The server does not automatically load `.env`.
 4. In the app, sign in, record a check-in, open Reflect, then select **Generate AI reflection**. It will display whether the response was AI-generated or a rule-based fallback.
+
+Routine lets users plan a one-time commitment for Today or Tomorrow, choose an editable starter idea, or request three ideas from Gemini. Completing a dated commitment removes it from active check-ins and retains its history for reflections. Legacy recurring routines are hidden for the local day once completed. The planned date lives in a separate table that is created at startup, so existing commitment records do not need to be rewritten for this feature.
+
+Reflect offers an opt-in daily insight. After at least one check-in, opening the app generates and caches one insight per local day on the current device. Today displays the result and offers a shortcut to plan the next step. If Gemini is unavailable, the app uses a rule-based insight.
+
+To schedule a local reminder, enable **Remind me at this time** when saving a dated commitment with a future time and allow notifications on the phone. The app requests Gemini suggestions and generic reminder wording via `POST /insights/plan`. A starter message is available if the provider fails. The phone schedules the reminder and cancels it on completion on that device. Test delivery with an Expo development build on iOS or Android. Reminders are device-local. Timing can vary with Android alarm settings.
 
 Free-tier requests may be subject to limits and provider data-use policies, so do not send sensitive journals or personal details. Never add the private key to `mobile/.env`, React Native code, CI logs, or GitHub. Until a real key and end-to-end session are configured, AI generation remains unverified.
 
@@ -129,7 +135,7 @@ For the device UI check, open the app with Expo Go or a simulator, register with
 ## Roadmap
 
 1. Complete identity provider setup, mobile login, authenticated integration tests, migrations, user deletion/export and secure deployment
-2. Actual scheduling and opt-in notifications, including time-zone-aware rescheduling
+2. Verify device notification delivery and add reminder reconciliation across devices and time zones
 3. Behavioral experiments, longitudinal analysis, and opt-in AI-generated suggestions
 4. Accessibility, end-to-end mobile testing, and store release readiness
 

@@ -24,3 +24,21 @@ def test_commitment_checkins_and_reflection(client):
 
 def test_unknown_commitment(client):
     assert client.post("/commitments/999/checkins", json={"status": "completed"}).status_code == 404
+
+
+def test_completed_plan_is_hidden_but_retained_in_history(client):
+    plan = {"title": "Study Python", "scheduled_time": "07:00",
+            "frequency": "once", "planned_date": "2026-11-27"}
+    assert client.post("/commitments", json={**plan, "planned_date": None}).status_code == 422
+    response = client.post("/commitments", json=plan)
+    assert response.status_code == 201
+    item = response.json()
+    assert item["planned_date"] == plan["planned_date"]
+    route = f"/commitments/{item['id']}/checkins"
+    assert client.post(route, json={"status": "missed"}).status_code == 201
+    assert len(client.get("/commitments").json()) == 1
+    assert client.post(route, json={"status": "completed"}).status_code == 201
+    assert client.get("/commitments").json() == []
+    assert client.post(route, json={"status": "completed"}).status_code == 404
+    assert [event["status"] for event in client.get("/checkins").json()] == ["completed", "missed"]
+    assert client.get("/insights").json()["completed"] == 1

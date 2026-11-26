@@ -1,7 +1,7 @@
 """Validated request and response types."""
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 Status = Literal["completed", "missed", "rescheduled", "skipped"]
 Reason = Literal["outside", "tired", "distracted", "too_difficult", "other"]
@@ -9,7 +9,15 @@ Reason = Literal["outside", "tired", "distracted", "too_difficult", "other"]
 class CommitmentCreate(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     scheduled_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
-    frequency: Literal["daily", "weekdays", "weekly"] = "daily"
+    frequency: Literal["daily", "weekdays", "weekly", "once"] = "daily"
+
+    planned_date: date | None = None
+
+    @model_validator(mode="after")
+    def validate_plan(self):
+        if (self.frequency == "once") != (self.planned_date is not None):
+            raise ValueError("A planned date is required for one-time commitments only")
+        return self
 
     @field_validator("title")
     @classmethod
@@ -35,6 +43,11 @@ class CheckInRead(CheckInCreate):
     id: int
     commitment_id: int
     created_at: datetime
+
+    @field_serializer("created_at")
+    def serialize_created_at(self, value: datetime) -> str:
+        return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
+
 
 class InsightRead(BaseModel):
     checkins: int

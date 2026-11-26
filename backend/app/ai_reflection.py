@@ -22,26 +22,31 @@ def generate_reflection(events):
     baseline = summarize(events)
     if not events:
         return {"reflection": baseline["reflection"], "source": "rules"}
-    key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not key:
-        return {"reflection": baseline["reflection"], "source": "rules"}
+    content = ask_gemini(_INSTRUCTIONS, aggregate(events))
+    return {"reflection": content or baseline["reflection"], "source": "ai" if content else "rules"}
 
+
+def aggregate(events):
     recent = events[:30]
     stats = Counter(e.status for e in recent if e.status in _ALLOWED_STATUSES)
     reasons = Counter(e.reason for e in recent if e.reason in _ALLOWED_REASONS)
-    payload = {
+    return {
         "recent_checkins": len(recent),
         "statuses": dict(stats),
         "reported_obstacles": dict(reasons),
-        "all_time_checkins": baseline["checkins"],
-        "all_time_completion_rate": baseline["completion_rate"],
     }
+
+
+def ask_gemini(instructions, payload):
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not key:
+        return None
     model = os.getenv("GEMINI_MODEL", _DEFAULT_MODEL).strip()
     # The model name is a path segment: reject arbitrary URLs and path injection.
     if not model or not all(char.isalnum() or char in ".-_" for char in model):
-        return {"reflection": baseline["reflection"], "source": "rules"}
+        return None
     body = json.dumps({
-        "systemInstruction": {"parts": [{"text": _INSTRUCTIONS}]},
+        "systemInstruction": {"parts": [{"text": instructions}]},
         "contents": [{"role": "user", "parts": [{"text": json.dumps(payload)}]}],
         "generationConfig": {"maxOutputTokens": 200, "temperature": 0.3},
     }).encode("utf-8")
@@ -67,6 +72,38 @@ def generate_reflection(events):
         content = " ".join(parts).strip()
         if not content or len(content) > 1200:
             raise ValueError("Invalid Gemini response")
-        return {"reflection": content, "source": "ai"}
-    except (HTTPError, URLError, TimeoutError, ValueError, KeyError, TypeError, OSError):
-        return {"reflection": baseline["reflection"], "source": "rules"}
+        return content
+    except (HTTPError, URLError, TimeoutError, ValueError, KeyError, TypeError, AttributeError, OSError):
+        return None
+
+
+def generate_plan(events):
+    fallback = {
+        "suggestions": ["Study for 20 minutes", "Take a 10-minute walk", "Plan tomorrow for 5 minutes"],
+        "reminder": "Ready for your commitment? Start with one small step.",
+        "source": "rules",
+    }
+    content = ask_gemini(
+        "Return only a compact JSON object with keys suggestions and reminder. Suggestions must "
+        "be three distinct, short, actionable commitments for everyday life, ideally covering "
+        "study, movement, and planning. Reminder must be one encouraging, generic sentence "
+        "that fits any commitment. Use the aggregate obstacle counts only to adjust how easy "
+        "the steps are. Never claim a cause, assume personal details, recommend medical care, "
+        "or include URLs. Do not wrap the JSON in Markdown.",
+        aggregate(events),
+    )
+    if not content:
+        return fallback
+    try:
+        plan = json.loads(content)
+        suggestions = plan["suggestions"]
+        reminder = plan["reminder"]
+        if (isinstance(suggestions, list) and len(suggestions) == 3
+            and all(isinstance(item, str) and 0 < len(item.strip()) <= 80 for item in suggestions)
+            and len({item.strip().casefold() for item in suggestions}) == 3
+            and isinstance(reminder, str) and 0 < len(reminder.strip()) <= 120):
+            return {"suggestions": [item.strip() for item in suggestions],
+                    "reminder": reminder.strip(), "source": "ai"}
+    except (ValueError, TypeError, KeyError):
+        pass
+    return fallback

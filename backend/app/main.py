@@ -8,6 +8,7 @@ from .database import Base, SessionLocal, engine
 from .models import Commitment, CheckIn
 from .schemas import CommitmentCreate, CommitmentRead, CheckInCreate, CheckInRead, InsightRead
 from .insights import summarize
+from .ai_reflection import generate_reflection
 from .auth import current_user
 
 @asynccontextmanager
@@ -56,3 +57,9 @@ def list_checkins(user_id: str = Depends(current_user), db: Session = Depends(db
 @app.get("/insights", response_model=InsightRead)
 def get_insights(user_id: str = Depends(current_user), db: Session = Depends(db_session)):
     return summarize(list(db.scalars(select(CheckIn).join(Commitment).where(Commitment.user_id == user_id).order_by(CheckIn.created_at.desc(), CheckIn.id.desc()))))
+
+@app.post("/insights/ai")
+def get_ai_reflection(user_id: str = Depends(current_user), db: Session = Depends(db_session)):
+    """Explicitly requested AI reflection; no user identifiers or notes leave the backend."""
+    events = list(db.scalars(select(CheckIn).join(Commitment).where(Commitment.user_id == user_id).order_by(CheckIn.created_at.desc(), CheckIn.id.desc()).limit(30)))
+    return generate_reflection(events)

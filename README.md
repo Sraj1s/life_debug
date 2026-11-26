@@ -11,7 +11,7 @@ Life Debug is a mobile-first behavioral reflection prototype. Users create reali
 - Local SQLite database; optional PostgreSQL using DATABASE_URL.
 - Automated backend tests.
 
-> **LOCAL DEVELOPMENT ONLY**: The backend now verifies signed bearer tokens and filters records by authenticated owner, but the mobile sign-in flow is not wired up and production security is incomplete. Do not deploy publicly or store sensitive journals. Push notifications and AI coaching are not connected yet.
+> **LOCAL DEVELOPMENT ONLY**: The backend now verifies signed bearer tokens and filters records by authenticated owner, and the Expo client now has a Supabase email/password sign-in screen and sends bearer tokens. End-to-end authentication is NOT yet verified and production security is incomplete. Do not deploy publicly or store sensitive journals. Push notifications and AI coaching are not connected yet.
 
 ## Authentication groundwork (not production-ready)
 
@@ -23,7 +23,7 @@ The API now requires signed access tokens for all commitment, check-in and insig
 
 Tokens must contain `sub`, `exp`, `iat`, `iss` and `aud` claims. Accepted signature algorithms: RS256 and ES256. Without configuration the protected endpoints return HTTP 503 (fail closed). Use a real provider's public JWKS and signed JWT access tokens, not client-chosen user IDs or unsigned mock tokens.
 
-**Migration required:** the commitments table now has a non-null `user_id` column. SQLAlchemy `create_all()` does not update existing tables. Existing local SQLite files need to be backed up and migrated or recreated using throwaway sample data. Do **not** discard or assign existing real records to an arbitrary owner. Production requires versioned migrations, end-to-end login, account deletion/export, provider setup, and security review. The Expo client has not yet been updated to send bearer tokens.
+**Migration required:** the commitments table now has a non-null `user_id` column. SQLAlchemy `create_all()` does not update existing tables. Existing local SQLite files need to be backed up and migrated or recreated using throwaway sample data. Do **not** discard or assign existing real records to an arbitrary owner. Production requires versioned migrations, end-to-end login, account deletion/export, provider setup, and security review. The Expo client sends Supabase access tokens. Supabase projects using legacy HS256 JWT signing are incompatible with the current backend JWKS-only RS256/ES256 verifier; configure asymmetric signing and matching issuer/audience, or implement an explicitly reviewed secure alternative. A working Supabase project, matching auth environment variables and real-device verification are still required.
 
 ## Start backend
 
@@ -53,7 +53,7 @@ cp .env.example .env
 npx expo start
 ```
 
-On iOS Simulator use 127.0.0.1 for the API URL; on Android Emulator use 10.0.2.2. Physical-device testing requires a reachable trusted local-network backend. Do not expose this unauthenticated API publicly.
+On iOS Simulator use 127.0.0.1 for the API URL; on Android Emulator use 10.0.2.2. Physical-device testing requires a reachable trusted local-network backend. Do not expose this not-yet-validated API publicly.
 
 ## Endpoints
 

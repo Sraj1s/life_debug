@@ -52,7 +52,7 @@ Code changes and the project's active status **do not** confirm that the dashboa
 The Reflect tab's **Generate AI reflection** action calls the authenticated backend route `POST /insights/ai`. It sends only aggregate check-in counts and reported obstacle categories for the current account to Google's Gemini API; not journal notes, commitment titles, credentials, or user IDs. This opt-in call is not run automatically. Provider errors or missing keys fall back to deterministic reflections.
 
 1. Create a Gemini API key at https://aistudio.google.com/apikey. Keep it private.
-2. Copy `backend/.env.example` to `backend/.env` if it does not exist. Set `GEMINI_API_KEY` to your real key in **backend/.env only** and `GEMINI_MODEL=gemini-3.1-flash-lite` (model availability may vary by account).
+2. Copy `backend/.env.example` to `backend/.env` if it does not exist. Set `GEMINI_API_KEY` to your real key in **backend/.env only** and `GEMINI_MODEL=gemini-3.5-flash-lite` (model availability may vary by account).
 3. Start FastAPI with these variables exported: from the `backend` folder, run `set -a; . ./.env; set +a` before `uvicorn app.main:app --reload`. The server does not automatically load `.env`.
 4. In the app, sign in, record a check-in, open Reflect, then select **Generate AI reflection**. It will display whether the response was AI-generated or a rule-based fallback.
 

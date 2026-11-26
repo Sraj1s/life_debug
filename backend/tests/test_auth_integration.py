@@ -76,13 +76,25 @@ def test_signed_request_flow_isolates_two_users(client, monkeypatch):
 
 def test_invalid_bearer_token_cannot_access_records(client, monkeypatch):
     app.dependency_overrides.pop(auth.current_user, None)
-    monkeypatch.setenv("AUTH_JWKS_URL", "https://sample-project.supabase.co/auth/v1/.well-known/jwks.json")
-    monkeypatch.setenv("AUTH_ISSUER", "https://sample-project.supabase.co/auth/v1")
+    issuer = "https://sample-project.supabase.co/auth/v1"
+    monkeypatch.setenv("AUTH_JWKS_URL", issuer + "/.well-known/jwks.json")
+    monkeypatch.setenv("AUTH_ISSUER", issuer)
     monkeypatch.setenv("AUTH_AUDIENCE", "authenticated")
 
-    # Malformed tokens must never expose private records, even if the
-    # JWKS lookup fails. A provider outage should also fail closed.
-    assert client.get(
+    class StubJWKClient:
+        def __init__(self, url, **kwargs):
+            assert url == issuer + "/.well-known/jwks.json"
+
+        def get_signing_key_from_jwt(self, signed_jwt):
+            # Public key lookup is local, so this test cannot contact Supabase.
+            return SimpleNamespace(key=rsa.generate_private_key(
+                public_exponent=65537, key_size=2048
+            ).public_key())
+
+    monkeypatch.setattr(auth, "PyJWKClient", StubJWKClient)
+    response = client.get(
         "/commitments",
         headers={"Authorization": "Bearer definitely-not-a-jwt"},
-    ).status_code in (401, 503)
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid access token"

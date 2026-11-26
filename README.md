@@ -70,6 +70,28 @@ npx expo start
 
 On iOS Simulator use 127.0.0.1 for the API URL; on Android Emulator use 10.0.2.2. Physical-device testing requires a reachable trusted local-network backend. Do not expose this not-yet-validated API publicly.
 
+## Live authentication smoke test (disposable account)
+
+The project has an automated **local command** for a real Supabase password sign-in and FastAPI API flow; it is deliberately **not** run in public CI because it needs a private disposable account. The script is syntax-checked by GitHub CI.
+
+1. Start the FastAPI backend using the backend instructions above, including `AUTH_ISSUER`, `AUTH_JWKS_URL`, and `AUTH_AUDIENCE` from `backend/.env`.
+2. Run `cd mobile && npm install && cp .env.example .env` and ensure `EXPO_PUBLIC_API_URL` addresses that **running** FastAPI instance. A phone cannot reach your laptop using `127.0.0.1`; for on-device testing use a safely reachable development server.
+3. Create a disposable email/password account through Life Debug's Expo sign-up screen, or run the script with `LIFE_DEBUG_TEST_REGISTER=1`. Supabase hosted email registration normally requires clicking the confirmation link before password sign-in; complete confirmation with your disposable inbox. Do not disable email confirmation merely to pass a smoke test.
+4. Supply credentials **only in your local shell**, never in source files or GitHub:
+
+```bash
+cd mobile
+export LIFE_DEBUG_TEST_EMAIL='your-disposable-test-address'
+read -s LIFE_DEBUG_TEST_PASSWORD
+export LIFE_DEBUG_TEST_PASSWORD
+npm run test:auth:e2e
+unset LIFE_DEBUG_TEST_PASSWORD
+```
+
+The test signs into Supabase, checks `getUser()`, sends the actual access token to FastAPI, creates and reads a commitment, records a check-in, verifies insights, and signs out. It **leaves behind a uniquely named test commitment** under the test account. It does not prove cross-user isolation beyond the existing backend tests, server-side token revocation, or an actual Expo UI flow.
+
+For the device UI check, open the app with Expo Go or a simulator, sign up, confirm the verification email if required, sign in, create a commitment, check it in, verify the reflection, sign out, and confirm the sign-in screen returns. A successful local smoke test is not a substitute for this device check.
+
 ## Endpoints
 
 | Method | Path | Purpose |

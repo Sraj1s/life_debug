@@ -36,7 +36,7 @@ def create_commitment(payload: CommitmentCreate, user_id: str = Depends(current_
 
 @app.get("/commitments", response_model=list[CommitmentRead])
 def list_commitments(user_id: str = Depends(current_user), db: Session = Depends(db_session)):
-    return db.scalars(select(Commitment).where(Commitment.active.is_(True), Commitment.user_id == user_id)).order_by(Commitment.scheduled_time, Commitment.id)).all()
+    return db.scalars(select(Commitment).where(Commitment.active.is_(True), Commitment.user_id == user_id).order_by(Commitment.scheduled_time, Commitment.id)).all()
 
 @app.post("/commitments/{commitment_id}/checkins", response_model=CheckInRead, status_code=201)
 def create_checkin(commitment_id: int, payload: CheckInCreate, user_id: str = Depends(current_user), db: Session = Depends(db_session)):
@@ -55,4 +55,4 @@ def list_checkins(user_id: str = Depends(current_user), db: Session = Depends(db
 
 @app.get("/insights", response_model=InsightRead)
 def get_insights(user_id: str = Depends(current_user), db: Session = Depends(db_session)):
-    return summarize(list(db.scalars(select(CheckIn).order_by(CheckIn.created_at.desc(), CheckIn.id.desc()))))
+    return summarize(list(db.scalars(select(CheckIn).join(Commitment).where(Commitment.user_id == user_id).order_by(CheckIn.created_at.desc(), CheckIn.id.desc()))))
